@@ -4,10 +4,6 @@ import os
 
 # --- Configuration and Error Handling ---
 
-# Check for API Key (Crucial First Step)
-if "GEMINI_API_KEY" not in os.environ:
-    st.error("Error:  The GEMINI_API_KEY environment variable is not set.  Please set it before running the app.")
-    st.stop()  # Stop execution if the key is missing
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
