@@ -2,61 +2,77 @@ import streamlit as st
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-# Function to read the system prompt from a file
-def read_system_prompt(file_path):
-    with open(file_path, "r") as file:
-        return file.read()
+# Constants for model configuration
+MODEL_NAME = "gemini-1.5-flash"
+SYSTEM_PROMPT_FILE = "system_prompt.txt"
+GENERATION_CONFIG = {
+    "temperature": 1,
+    "top_p": 0.95,
+    "top_k": 40,
+    "max_output_tokens": 8192,
+    "response_mime_type": "text/plain",
+}
+SAFETY_SETTINGS = {  # Disable safety filters (adjust as needed)
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+}
 
-# Streamlit app
+
 def main():
     st.title("Gemini Chatbot")
 
-    # Input for API key
+    # API Key input
     api_key = st.text_input("Enter your Gemini API Key:", type="password")
 
     if api_key:
-        # Configure the API key
+        # Initialize Gemini API (only once)
         genai.configure(api_key=api_key)
 
-        # Read the system prompt from a file
-        system_prompt = read_system_prompt("system_prompt.txt")
+        try:
+            # Load system prompt (only once)
+            with open(SYSTEM_PROMPT_FILE, "r") as f:
+                system_prompt = f.read()
 
-        # Create the model
-        generation_config = {
-            "temperature": 1,
-            "top_p": 0.95,
-            "top_k": 40,
-            "max_output_tokens": 8192,
-            "response_mime_type": "text/plain",
-        }
+            # Initialize model and chat session (only once)
+            model = genai.GenerativeModel(
+                model_name=MODEL_NAME,
+                generation_config=GENERATION_CONFIG,
+                safety_settings=SAFETY_SETTINGS,
+            )
+            chat_session = model.start_chat(context=system_prompt)
 
-        # Define safety settings to disable or adjust filters
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-        }
+            # Initialize chat history in session state
+            if "messages" not in st.session_state:
+                st.session_state.messages = []
 
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            generation_config=generation_config,
-            safety_settings=safety_settings,  # Apply custom safety settings
-        )
+            # Display chat history
+            for message in st.session_state.messages:
+                st.write(f"User: {message['user']}")
+                st.write(f"Bot: {message['bot']}")
 
-        # Start a chat session with the system prompt
-        chat_session = model.start_chat(history=[])
+            # User input
+            user_input = st.text_input("Enter your message:")
 
-        # Input for user message
-        user_input = st.text_input("Enter your message:")
+            if user_input:
+                # Send message and get response
+                response = chat_session.send_message(user_input)
 
-        if user_input:
-            # Send the user's message to the model
-            response = chat_session.send_message(system_prompt + "\n" + user_input)
+                # Update chat history
+                st.session_state.messages.append({"user": user_input, "bot": response.text})
 
-            # Display the response
-            st.write("Response:")
-            st.write(response.text)
+                # Display bot's response
+                st.write(f"Bot: {response.text}")
+
+                # Rerun Streamlit to update the display
+                st.experimental_rerun()
+
+        except FileNotFoundError:
+            st.error(f"System prompt file not found: {SYSTEM_PROMPT_FILE}")
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+
 
 if __name__ == "__main__":
     main()
