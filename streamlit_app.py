@@ -1,71 +1,103 @@
 import streamlit as st
 import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+import os
 
-# Constants
-MODEL_NAME = "gemini-1.5-flash"
-SYSTEM_PROMPT_FILE = "system_prompt.txt"
-GENERATION_CONFIG = {
-    "temperature": 1,
-    "top_p": 0.95,
-    "top_k": 40,
-    "max_output_tokens": 8192,
-    "response_mime_type": "text/plain",
-}
-SAFETY_SETTINGS = {
-    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-}
+# --- Configuration and Error Handling ---
+
+# Check for API Key (Crucial First Step)
+if "GEMINI_API_KEY" not in os.environ:
+    st.error("Error:  The GEMINI_API_KEY environment variable is not set.  Please set it before running the app.")
+    st.stop()  # Stop execution if the key is missing
+
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+
+
+def load_system_prompt(filepath="system_prompt.txt"):
+    """Loads the system prompt from a file, handling potential errors."""
+    try:
+        with open(filepath, "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        st.error(f"Error: System prompt file not found at '{filepath}'. Please create the file.")
+        return ""  # Return an empty string so the program doesn't crash
+    except Exception as e:
+        st.error(f"An unexpected error occurred reading the system prompt: {e}")
+        return ""
+
+
+# --- Gemini Setup ---
+
+def get_gemini_response(user_input, system_prompt):
+    """Gets a response from the Gemini model, handling potential errors."""
+    generation_config = {
+        "temperature": 0.7,  #  Adjust as needed
+        "top_p": 0.95,
+        "top_k": 64,
+        "max_output_tokens": 8192,
+    }
+
+    safety_settings = [
+        {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_NONE",
+        },
+        {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_NONE",
+        },
+        {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_NONE",
+        },
+        {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_NONE",
+        }
+
+    ]
+
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",  # Use a consistent model name.  "gemini-2.0-pro-exp-02-05" might be invalid
+        generation_config=generation_config,
+        safety_settings=safety_settings
+    )
+
+    # Use the chat interface for a conversational flow (better than raw generation)
+    chat = model.start_chat(history=[])
+
+    # Send the system prompt as the *first* message in the history.
+    if system_prompt:  # Only send if the prompt was loaded successfully
+        chat.send_message(system_prompt)  # System prompt goes *first*
+
+
+    try:
+        response = chat.send_message(user_input)
+        return response.text
+    except Exception as e:
+        st.error(f"An error occurred while communicating with Gemini: {e}")
+        return "Error: Could not get a response from Gemini."
+
+
+
+# --- Streamlit App ---
 
 def main():
-    st.title("Gemini Chatbot")
+    st.title("Gemini AI Chatbot with Custom System Prompt")
 
-    api_key = st.text_input("Enter your Gemini API Key:", type="password")
+    system_prompt = load_system_prompt()  # Load the prompt
 
-    if api_key:
-        genai.configure(api_key=api_key)
+    user_input = st.text_area("Enter your message:", height=150)
 
-        try:
-            with open(SYSTEM_PROMPT_FILE, "r") as f:
-                system_prompt = f.read()
+    if st.button("Send"):
+        if user_input:
+            with st.spinner("Generating response..."):  # Show a spinner
+                response = get_gemini_response(user_input, system_prompt)
+            st.markdown("### Response:")
+            st.write(response)  # Use st.write for displaying the response
+        else:
+            st.warning("Please enter a message.")
 
-            model = genai.GenerativeModel(
-                model_name=MODEL_NAME,
-                generation_config=GENERATION_CONFIG,
-                safety_settings=SAFETY_SETTINGS,
-            )
 
-            # Initialize chat session
-            chat_session = model.start_chat()
-
-            if "chat_history" not in st.session_state:
-                st.session_state.chat_history = [(None, system_prompt)]
-            if "messages" not in st.session_state:
-                st.session_state.messages = []
-
-            for message in st.session_state.messages:
-                st.write(f"User: {message['user']}")
-                st.write(f"Bot: {message['bot']}")
-
-            user_input = st.text_input("Enter your message:")
-
-            if user_input:
-                response = chat_session.send_message(
-                    user_input, history=st.session_state.chat_history
-                )
-
-                st.session_state.chat_history.append((user_input, response.text))
-                st.session_state.messages.append({"user": user_input, "bot": response.text})
-
-                st.write(f"Bot: {response.text}")
-                st.experimental_rerun()
-
-        except FileNotFoundError:
-            st.error(f"System prompt file not found: {SYSTEM_PROMPT_FILE}")
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     main()
